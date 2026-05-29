@@ -16,9 +16,9 @@ document.addEventListener('DOMContentLoaded', () => {
     preloadClosed.src = closedMouthImg;
 
     let lipSyncInterval;
+    let currentAudio = null; // Variable para controlar el audio actual
 
     const typewriter = (text, element, speed = 50) => {
-        // Use Intl.Segmenter to handle grapheme clusters correctly
         if (window.Intl && Intl.Segmenter) {
             const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
             const segments = Array.from(segmenter.segment(text)).map(s => s.segment);
@@ -35,7 +35,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             type();
         } else {
-            // Fallback for older browsers
             let i = 0;
             element.innerHTML = "";
             function type() {
@@ -49,53 +48,49 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    const speak = (text) => {
-        if (!('speechSynthesis' in window)) return;
-        
-        if (speechSynthesis.speaking) {
-            speechSynthesis.cancel();
-        }
-        clearInterval(lipSyncInterval);
-
-        const utterance = new SpeechSynthesisUtterance(text);
-        const voices = speechSynthesis.getVoices();
-        
-        // Buscamos a Pablo (Windows/Edge) o una voz genérica masculina en español (Chrome/Mac)
-        let selectedVoice = voices.find(voice => voice.name.includes("Pablo") && voice.lang.includes("es"));
-        
-        // Si no encuentra a Pablo, busca cualquier otra voz de Google en español
-        if (!selectedVoice) {
-            selectedVoice = voices.find(voice => voice.name.includes("Google") && voice.lang.includes("es"));
-        }
-        
-        // Respaldo final: cualquier voz en español que encuentre el navegador
-        if (!selectedVoice) {
-            selectedVoice = voices.find(voice => voice.lang.includes("es"));
+    // NUEVO MOTOR DE AUDIO DE ALTA DEFINICIÓN
+    const playAudio = (base64Audio) => {
+        // Si hay un audio sonando, lo detenemos
+        if (currentAudio) {
+            currentAudio.pause();
+            currentAudio.currentTime = 0;
+            clearInterval(lipSyncInterval);
         }
 
-        if (selectedVoice) {
-            utterance.voice = selectedVoice;
+        if (!base64Audio) {
+            console.error("No se recibió audio de ElevenLabs");
+            return;
         }
 
-        utterance.onstart = () => {
+        // Crear reproductor de MP3 usando los datos en base64
+        currentAudio = new Audio("data:audio/mpeg;base64," + base64Audio);
+
+        // Cuando el audio empieza a sonar, iniciamos la animación
+        currentAudio.addEventListener('play', () => {
             let mouthOpen = true;
             lipSyncInterval = setInterval(() => {
                 characterImage.src = mouthOpen ? openMouthImg : closedMouthImg;
                 mouthOpen = !mouthOpen;
-            }, 150);
-        };
+            }, 150); // Velocidad de la boca (150ms)
+        });
 
-        utterance.onend = () => {
+        // Cuando el audio termina o hay un error, cerramos la boca
+        currentAudio.addEventListener('ended', () => {
             clearInterval(lipSyncInterval);
             characterImage.src = closedMouthImg;
-        };
+        });
 
-        utterance.onerror = () => {
+        currentAudio.addEventListener('pause', () => {
             clearInterval(lipSyncInterval);
             characterImage.src = closedMouthImg;
-        };
+        });
 
-        speechSynthesis.speak(utterance);
+        // Reproducir el audio
+        currentAudio.play().catch(e => {
+            console.error('Error reproduciendo el audio:', e);
+            clearInterval(lipSyncInterval);
+            characterImage.src = closedMouthImg;
+        });
     };
 
     const handleSendMessage = async () => {
@@ -120,13 +115,19 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             const data = await response.json();
+            
+            // 1. Escribir el texto en pantalla
             typewriter(data.response, status);
-            speak(data.response);
+            
+            // 2. Reproducir la voz humana (si el servidor la envió)
+            if (data.audio) {
+                playAudio(data.audio);
+            }
+
         } catch (error) {
             console.error('Error:', error);
-            const errorMessage = 'Lo siento, algo salió mal. Por favor intenta de nuevo.';
+            const errorMessage = 'Lo siento, ha habido un corte en mi matriz de comunicación.';
             typewriter(errorMessage, status);
-            speak(errorMessage);
         }
     };
 
@@ -143,12 +144,4 @@ document.addEventListener('DOMContentLoaded', () => {
         textInput.style.height = 'auto';
         textInput.style.height = `${textInput.scrollHeight}px`;
     });
-
-    // OBLIGAR AL NAVEGADOR A CARGAR LAS VOCES DE INMEDIATO
-    if ('speechSynthesis' in window) {
-        speechSynthesis.getVoices();
-        if (speechSynthesis.onvoiceschanged !== undefined) {
-            speechSynthesis.onvoiceschanged = () => { speechSynthesis.getVoices(); };
-        }
-    }
 });
