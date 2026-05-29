@@ -6,3 +6,5 @@ __pycache__/
 historial_memoria.json
 groq_key.txt
 *.sh
+firebase_key.json
+firebase_key.json
