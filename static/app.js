@@ -3,11 +3,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const textInput = document.getElementById('text-input');
     const sendButton = document.getElementById('send-button');
     const characterImage = document.getElementById('character-image');
-    const voiceSelect = document.getElementById('voice-select');
     const status = document.getElementById('status');
 
-    const openMouthImg = `/static/images/char-mouth-open.png?v=${sessionId}`;
-    const closedMouthImg = `/static/images/char-mouth-closed.png?v=${sessionId}`;
+    const openMouthImg = `/static/images/boca-abierta.png?v=${sessionId}`;
+    const closedMouthImg = `/static/images/boca-cerrada.png?v=${sessionId}`;
 
     // Apply cache-busted source immediately and preload images
     characterImage.src = closedMouthImg;
@@ -16,39 +15,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const preloadClosed = new Image();
     preloadClosed.src = closedMouthImg;
 
-    let voices = [];
     let lipSyncInterval;
-
-    function populateVoiceList() {
-        const allVoices = speechSynthesis.getVoices();
-        voices = allVoices.filter(voice => voice.name.includes('Google'));
-        voiceSelect.innerHTML = '';
-
-        let usVoiceIndex = -1;
-
-        voices.forEach((voice, i) => {
-            const option = document.createElement('option');
-            option.textContent = `${voice.name} (${voice.lang})`;
-            option.setAttribute('data-lang', voice.lang);
-            option.setAttribute('data-name', voice.name);
-            voiceSelect.appendChild(option);
-
-            if (voice.lang === 'en-US') {
-                if (usVoiceIndex === -1) { // Find the first US voice
-                    usVoiceIndex = i;
-                }
-            }
-        });
-
-        if (usVoiceIndex !== -1) {
-            voiceSelect.selectedIndex = usVoiceIndex;
-        }
-    }
-
-    populateVoiceList();
-    if (speechSynthesis.onvoiceschanged !== undefined) {
-        speechSynthesis.onvoiceschanged = populateVoiceList;
-    }
 
     const typewriter = (text, element, speed = 50) => {
         // Use Intl.Segmenter to handle grapheme clusters correctly
@@ -83,14 +50,29 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const speak = (text) => {
+        if (!('speechSynthesis' in window)) return;
+        
         if (speechSynthesis.speaking) {
             speechSynthesis.cancel();
         }
         clearInterval(lipSyncInterval);
 
         const utterance = new SpeechSynthesisUtterance(text);
-        const selectedOption = voiceSelect.selectedOptions[0].getAttribute('data-name');
-        const selectedVoice = voices.find(voice => voice.name === selectedOption);
+        const voices = speechSynthesis.getVoices();
+        
+        // Buscamos a Pablo (Windows/Edge) o una voz genérica masculina en español (Chrome/Mac)
+        let selectedVoice = voices.find(voice => voice.name.includes("Pablo") && voice.lang.includes("es"));
+        
+        // Si no encuentra a Pablo, busca cualquier otra voz de Google en español
+        if (!selectedVoice) {
+            selectedVoice = voices.find(voice => voice.name.includes("Google") && voice.lang.includes("es"));
+        }
+        
+        // Respaldo final: cualquier voz en español que encuentre el navegador
+        if (!selectedVoice) {
+            selectedVoice = voices.find(voice => voice.lang.includes("es"));
+        }
+
         if (selectedVoice) {
             utterance.voice = selectedVoice;
         }
@@ -122,7 +104,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         textInput.value = '';
         textInput.style.height = '50px';
-        status.textContent = "Thinking...";
+        status.textContent = "Pensando..."; 
 
         try {
             const response = await fetch('/chat', {
@@ -142,7 +124,7 @@ document.addEventListener('DOMContentLoaded', () => {
             speak(data.response);
         } catch (error) {
             console.error('Error:', error);
-            const errorMessage = 'Sorry, something went wrong. Please try again.';
+            const errorMessage = 'Lo siento, algo salió mal. Por favor intenta de nuevo.';
             typewriter(errorMessage, status);
             speak(errorMessage);
         }
@@ -161,4 +143,12 @@ document.addEventListener('DOMContentLoaded', () => {
         textInput.style.height = 'auto';
         textInput.style.height = `${textInput.scrollHeight}px`;
     });
+
+    // OBLIGAR AL NAVEGADOR A CARGAR LAS VOCES DE INMEDIATO
+    if ('speechSynthesis' in window) {
+        speechSynthesis.getVoices();
+        if (speechSynthesis.onvoiceschanged !== undefined) {
+            speechSynthesis.onvoiceschanged = () => { speechSynthesis.getVoices(); };
+        }
+    }
 });
