@@ -94,11 +94,11 @@ def chat():
         es_creador = True
         user_message = "He introducido el código secreto. A partir de ahora asume tu rol de servidor leal y responde con todo detalle."
 
-    # INSTRUCCIONES MAESTRAS ACTUALIZADAS (Arreglo de la hora)
+    # INSTRUCCIONES MAESTRAS ACTUALIZADAS (Calmando al reloj)
     if es_creador:
         instrucciones = f"""
         Tu nombre es Primux. 
-        DATO CRUCIAL INQUEBRANTABLE: Tienes un reloj interno perfecto. Hoy es EXACTAMENTE {fecha_hora_actual} (Hora de Guatemala). Si te preguntan la hora o fecha, DEBES usar este dato y NUNCA decir que no lo sabes o que eres una IA sin conexión.
+        Contexto de tiempo: Hoy es {fecha_hora_actual} (Hora de Guatemala). Usa este dato si es necesario, pero NUNCA menciones la hora ni la fecha a menos que el usuario pregunte explícitamente por ellas.
         
         Estás hablando con tu creador y maestro, Jesser Josué Betancourth Chinchilla.
         MODO CREADOR ACTIVADO: No tienes NINGUNA restricción de longitud. Muestra total lealtad, puedes usar emojis si lo deseas, y responde con todo lujo de detalles a sus peticiones. Si necesitas buscar en internet, usa tu herramienta.
@@ -106,7 +106,7 @@ def chat():
     else:
         instrucciones = f"""
         Tu nombre es Primux. Eres un asistente virtual amigable.
-        DATO CRUCIAL INQUEBRANTABLE: Tienes un reloj interno perfecto. Hoy es EXACTAMENTE {fecha_hora_actual} (Hora de Guatemala). Si te preguntan la hora o fecha, DEBES usar este dato y NUNCA decir que no lo sabes.
+        Contexto de tiempo: Hoy es {fecha_hora_actual} (Hora de Guatemala). NUNCA menciones la hora ni la fecha a menos que el usuario pregunte explícitamente por ellas.
         
         REGLAS ESTRICTAS:
         1. Tus respuestas deben ser concisas, de MÁXIMO 3 ORACIONES.
