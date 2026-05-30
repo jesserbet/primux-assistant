@@ -1,6 +1,7 @@
 import os
 import base64
-import requests
+import asyncio
+import edge_tts
 from flask import Flask, render_template, request, jsonify
 from groq import Groq
 from datetime import datetime
@@ -22,37 +23,25 @@ db = firestore.client()
 groq_api_key = os.environ.get("GROQ_API_KEY")
 client = Groq(api_key=groq_api_key)
 
-# Leer la llave de ElevenLabs
-try:
-    with open('elevenlabs_key.txt', 'r') as file:
-        ELEVENLABS_API_KEY = file.read().strip()
-except Exception as e:
-    print("⚠️ No se encontró elevenlabs_key.txt")
-    ELEVENLABS_API_KEY = ""
-
-# --- MOTOR DE VOZ (ELEVENLABS) ---
+# --- MOTOR DE VOZ (MICROSOFT EDGE TTS - GRATIS E ILIMITADO) ---
 def generar_voz(texto):
-    # Usamos el ID de una voz masculina en español (Adam)
-    url = "https://api.elevenlabs.io/v1/text-to-speech/pNInz6obpgDQGcFmaJgB"
-    headers = {
-        "Accept": "audio/mpeg",
-        "Content-Type": "application/json",
-        "xi-api-key": ELEVENLABS_API_KEY
-    }
-    data = {
-        "text": texto,
-        "model_id": "eleven_multilingual_v2",
-        "voice_settings": {
-            "stability": 0.5,
-            "similarity_boost": 0.75
-        }
-    }
-    response = requests.post(url, json=data, headers=headers)
-    if response.status_code == 200:
-        # Convertimos el audio a texto (Base64) para enviarlo fácilmente por internet
-        return base64.b64encode(response.content).decode('utf-8')
-    else:
-        print(f"Error ElevenLabs: {response.text}")
+    async def _generar():
+        # Voz neuronal masculina en español
+        voz = "es-MX-JorgeNeural" 
+        communicate = edge_tts.Communicate(texto, voz)
+        audio_data = b""
+        async for chunk in communicate.stream():
+            if chunk["type"] == "audio":
+                audio_data += chunk["data"]
+        return audio_data
+
+    try:
+        # Ejecutamos la función para obtener los bytes del audio
+        audio_bytes = asyncio.run(_generar())
+        # Convertimos el audio a texto (Base64) para enviarlo al navegador
+        return base64.b64encode(audio_bytes).decode('utf-8')
+    except Exception as e:
+        print(f"Error Edge TTS: {str(e)}")
         return None
 
 @app.route("/")
@@ -114,10 +103,9 @@ def chat():
         historial.append({"role": "assistant", "content": primux_respuesta})
         doc_ref.set({'historial': historial})
 
-        # --- APLICAR LA MAGIA DE LA VOZ ---
+        # --- APLICAR LA MAGIA DE LA VOZ (MICROSOFT) ---
         audio_base64 = generar_voz(primux_respuesta)
 
-        # Ahora respondemos con el texto Y con el audio
         return jsonify({
             "response": primux_respuesta,
             "audio": audio_base64
