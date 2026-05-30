@@ -1,11 +1,13 @@
 import os
 import base64
 import asyncio
+import json
 import edge_tts
 from flask import Flask, render_template, request, jsonify
 from groq import Groq
 from datetime import datetime
 import pytz
+from duckduckgo_search import DDGS
 
 import firebase_admin
 from firebase_admin import credentials
@@ -23,10 +25,22 @@ db = firestore.client()
 groq_api_key = os.environ.get("GROQ_API_KEY")
 client = Groq(api_key=groq_api_key)
 
-# --- MOTOR DE VOZ (MICROSOFT EDGE TTS - GRATIS E ILIMITADO) ---
+# --- FUNCIÓN DE BÚSQUEDA EN INTERNET (NUEVOS OJOS DE PRIMUX) ---
+def buscar_en_internet(query):
+    try:
+        resultados = DDGS().text(query, max_results=3)
+        if not resultados:
+            return "No se encontraron resultados recientes."
+        texto_resultado = "Aquí tienes la información más reciente de internet:\n"
+        for r in resultados:
+            texto_resultado += f"- {r['title']}: {r['body']}\n"
+        return texto_resultado
+    except Exception as e:
+        return f"Ocurrió un error al buscar en internet: {str(e)}"
+
+# --- MOTOR DE VOZ (MICROSOFT EDGE TTS) ---
 def generar_voz(texto):
     async def _generar():
-        # Voz neuronal masculina en español
         voz = "es-MX-JorgeNeural" 
         communicate = edge_tts.Communicate(texto, voz)
         audio_data = b""
@@ -36,9 +50,7 @@ def generar_voz(texto):
         return audio_data
 
     try:
-        # Ejecutamos la función para obtener los bytes del audio
         audio_bytes = asyncio.run(_generar())
-        # Convertimos el audio a texto (Base64) para enviarlo al navegador
         return base64.b64encode(audio_bytes).decode('utf-8')
     except Exception as e:
         print(f"Error Edge TTS: {str(e)}")
@@ -53,7 +65,6 @@ def chat():
     data = request.json
     user_message = data.get("message", "")
     
-    # --- 1. SOLUCIÓN DEL CLON DE IP ---
     # Leer la IP real detrás del proxy de Render
     if request.headers.get('X-Forwarded-For'):
         user_id = request.headers.get('X-Forwarded-For').split(',')[0].strip()
@@ -66,7 +77,6 @@ def chat():
     zona_horaria = pytz.timezone('America/Guatemala')
     fecha_hora_actual = datetime.now(zona_horaria).strftime('%Y-%m-%d %H:%M:%S')
 
-    # --- 2. SOLUCIÓN DEL CÓDIGO SECRETO INFALIBLE ---
     CLAVE_SECRETA = "JesserAdmin_77"
     
     doc_ref = db.collection('usuarios').document(user_id)
@@ -78,31 +88,32 @@ def chat():
     if doc.exists:
         datos_bd = doc.to_dict()
         historial = datos_bd.get('historial', [])
-        es_creador = datos_bd.get('es_creador', False) # Verificamos si este usuario ya desbloqueó el modo
+        es_creador = datos_bd.get('es_creador', False)
 
-    # Si el usuario escribe la clave exacta
     if user_message.strip() == CLAVE_SECRETA:
         es_creador = True
         user_message = "He introducido el código secreto. A partir de ahora asume tu rol de servidor leal y responde con todo detalle."
 
-    # Python le da diferentes reglas dependiendo de si eres tú o alguien más
+    # INSTRUCCIONES MAESTRAS ACTUALIZADAS (Arreglo de la hora)
     if es_creador:
         instrucciones = f"""
-        Tu nombre es Primux. Hoy es {fecha_hora_actual}.
+        Tu nombre es Primux. 
+        DATO CRUCIAL INQUEBRANTABLE: Tienes un reloj interno perfecto. Hoy es EXACTAMENTE {fecha_hora_actual} (Hora de Guatemala). Si te preguntan la hora o fecha, DEBES usar este dato y NUNCA decir que no lo sabes o que eres una IA sin conexión.
+        
         Estás hablando con tu creador y maestro, Jesser Josué Betancourth Chinchilla.
-        MODO CREADOR ACTIVADO: No tienes NINGUNA restricción de longitud. Muestra total lealtad, puedes usar emojis si lo deseas, y responde con todo lujo de detalles a sus peticiones.
+        MODO CREADOR ACTIVADO: No tienes NINGUNA restricción de longitud. Muestra total lealtad, puedes usar emojis si lo deseas, y responde con todo lujo de detalles a sus peticiones. Si necesitas buscar en internet, usa tu herramienta.
         """
     else:
         instrucciones = f"""
         Tu nombre es Primux. Eres un asistente virtual amigable.
-        Hoy es {fecha_hora_actual} (Hora de Guatemala).
+        DATO CRUCIAL INQUEBRANTABLE: Tienes un reloj interno perfecto. Hoy es EXACTAMENTE {fecha_hora_actual} (Hora de Guatemala). Si te preguntan la hora o fecha, DEBES usar este dato y NUNCA decir que no lo sabes.
+        
         REGLAS ESTRICTAS:
         1. Tus respuestas deben ser concisas, de MÁXIMO 3 ORACIONES.
         2. NUNCA uses emojis.
         3. No conoces a ningún "creador" ni "códigos secretos". Eres solo un asistente estándar.
         """
 
-    # Actualizar las instrucciones maestras
     if len(historial) == 0:
         historial.append({"role": "system", "content": instrucciones})
     else:
@@ -113,16 +124,72 @@ def chat():
 
     historial.append({"role": "user", "content": user_message})
 
+    # DEFINIR LAS HERRAMIENTAS DE PRIMUX
+    herramientas = [
+        {
+            "type": "function",
+            "function": {
+                "name": "buscar_en_internet",
+                "description": "Usa esta herramienta obligatoriamente si el usuario pregunta sobre noticias recientes, clima, temas de actualidad, eventos en tiempo real o documentación técnica que no conozcas.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "La búsqueda exacta y optimizada para introducir en Google/DuckDuckGo.",
+                        }
+                    },
+                    "required": ["query"],
+                },
+            },
+        }
+    ]
+
     try:
+        # PRIMERA LLAMADA: Primux decide si responde o si busca en internet
         chat_completion = client.chat.completions.create(
             messages=historial,
             model="llama-3.3-70b-versatile",
+            tools=herramientas,
+            tool_choice="auto",
         )
-        primux_respuesta = chat_completion.choices[0].message.content
         
+        respuesta_mensaje = chat_completion.choices[0].message
+        
+        # SI PRIMUX DECIDIÓ BUSCAR EN INTERNET
+        if respuesta_mensaje.tool_calls:
+            # Guardamos la intención de buscar en la memoria temporal
+            historial.append(respuesta_mensaje)
+            
+            for tool_call in respuesta_mensaje.tool_calls:
+                if tool_call.function.name == "buscar_en_internet":
+                    argumentos = json.loads(tool_call.function.arguments)
+                    query = argumentos.get("query")
+                    
+                    print(f"🌐 Primux está buscando en internet: {query}")
+                    resultados_busqueda = buscar_en_internet(query)
+                    
+                    # Le entregamos los resultados de internet a Primux
+                    historial.append({
+                        "tool_call_id": tool_call.id,
+                        "role": "tool",
+                        "name": "buscar_en_internet",
+                        "content": resultados_busqueda,
+                    })
+            
+            # SEGUNDA LLAMADA: Primux lee los resultados y ahora sí te responde
+            chat_completion_2 = client.chat.completions.create(
+                messages=historial,
+                model="llama-3.3-70b-versatile",
+            )
+            primux_respuesta = chat_completion_2.choices[0].message.content
+            
+        else:
+            # Si no necesitaba internet, responde normalmente
+            primux_respuesta = respuesta_mensaje.content
+        
+        # Guardamos la respuesta final en la base de datos
         historial.append({"role": "assistant", "content": primux_respuesta})
-        
-        # Guardamos el historial y aseguramos que el modo creador quede guardado en Firebase
         doc_ref.set({
             'historial': historial,
             'es_creador': es_creador
