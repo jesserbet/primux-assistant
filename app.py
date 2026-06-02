@@ -25,7 +25,42 @@ db = firestore.client()
 groq_api_key = os.environ.get("GROQ_API_KEY")
 client = Groq(api_key=groq_api_key)
 
-# --- FUNCIÓN DE BÚSQUEDA EN INTERNET (NUEVOS OJOS DE PRIMUX) ---
+# --- SISTEMA DE CASCADA: MÚLTIPLES MOTORES DE IA ---
+def llamar_ia_con_respaldo(mensajes, herramientas_activas=None):
+    modelos_disponibles = [
+        "llama-3.3-70b-versatile", # Cerebro principal (Súper inteligente)
+        "llama-3.1-8b-instant",    # Respaldo 1 (Más rápido y ligero)
+        "mixtral-8x7b-32768"       # Respaldo 2 (Motor alternativo de alta capacidad)
+    ]
+    
+    for modelo in modelos_disponibles:
+        try:
+            kwargs = {
+                "messages": mensajes,
+                "model": modelo,
+            }
+            if herramientas_activas:
+                kwargs["tools"] = herramientas_activas
+                kwargs["tool_choice"] = "auto"
+                
+            respuesta = client.chat.completions.create(**kwargs)
+            return respuesta.choices[0].message
+            
+        except Exception as e:
+            error_str = str(e).lower()
+            # Si el error es por límite de tokens (429), intentamos con el siguiente modelo
+            if "rate limit" in error_str or "429" in error_str:
+                print(f"⚠️ Tokens agotados en {modelo}. Cambiando al motor de respaldo...")
+                continue
+            else:
+                # Si es un error distinto, lo mostramos
+                raise e
+                
+    # Si todos los modelos fallan
+    raise Exception("Todos mis motores de IA están agotados en este momento. Por favor, dame unos minutos para recargar energía.")
+
+
+# --- FUNCIÓN DE BÚSQUEDA EN INTERNET ---
 def buscar_en_internet(query):
     try:
         resultados = DDGS().text(query, max_results=3)
@@ -65,7 +100,6 @@ def chat():
     data = request.json
     user_message = data.get("message", "")
     
-    # Leer la IP real detrás del proxy de Render
     if request.headers.get('X-Forwarded-For'):
         user_id = request.headers.get('X-Forwarded-For').split(',')[0].strip()
     else:
@@ -94,7 +128,6 @@ def chat():
         es_creador = True
         user_message = "He introducido el código secreto. A partir de ahora asume tu rol de servidor leal y responde con todo detalle."
 
-    # INSTRUCCIONES MAESTRAS ACTUALIZADAS (Calmando al reloj)
     if es_creador:
         instrucciones = f"""
         Tu nombre es Primux. 
@@ -124,7 +157,6 @@ def chat():
 
     historial.append({"role": "user", "content": user_message})
 
-    # DEFINIR LAS HERRAMIENTAS DE PRIMUX
     herramientas = [
         {
             "type": "function",
@@ -146,19 +178,10 @@ def chat():
     ]
 
     try:
-        # PRIMERA LLAMADA: Primux decide si responde o si busca en internet
-        chat_completion = client.chat.completions.create(
-            messages=historial,
-            model="llama-3.3-70b-versatile",
-            tools=herramientas,
-            tool_choice="auto",
-        )
+        # PRIMERA LLAMADA (Usa el sistema de cascada)
+        respuesta_mensaje = llamar_ia_con_respaldo(historial, herramientas)
         
-        respuesta_mensaje = chat_completion.choices[0].message
-        
-        # SI PRIMUX DECIDIÓ BUSCAR EN INTERNET
         if respuesta_mensaje.tool_calls:
-            # Guardamos la intención de buscar en la memoria temporal
             historial.append(respuesta_mensaje)
             
             for tool_call in respuesta_mensaje.tool_calls:
@@ -169,7 +192,6 @@ def chat():
                     print(f"🌐 Primux está buscando en internet: {query}")
                     resultados_busqueda = buscar_en_internet(query)
                     
-                    # Le entregamos los resultados de internet a Primux
                     historial.append({
                         "tool_call_id": tool_call.id,
                         "role": "tool",
@@ -177,18 +199,13 @@ def chat():
                         "content": resultados_busqueda,
                     })
             
-            # SEGUNDA LLAMADA: Primux lee los resultados y ahora sí te responde
-            chat_completion_2 = client.chat.completions.create(
-                messages=historial,
-                model="llama-3.3-70b-versatile",
-            )
-            primux_respuesta = chat_completion_2.choices[0].message.content
+            # SEGUNDA LLAMADA (Usa el sistema de cascada)
+            respuesta_mensaje_2 = llamar_ia_con_respaldo(historial)
+            primux_respuesta = respuesta_mensaje_2.content
             
         else:
-            # Si no necesitaba internet, responde normalmente
             primux_respuesta = respuesta_mensaje.content
         
-        # Guardamos la respuesta final en la base de datos
         historial.append({"role": "assistant", "content": primux_respuesta})
         doc_ref.set({
             'historial': historial,
