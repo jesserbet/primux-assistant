@@ -10,9 +10,22 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
-    <div class="chat-container">
+    
+    <div id="login-container" class="login-wrapper">
+        <div class="login-box">
+            <h2>Bienvenido a Primux</h2>
+            <p>Inicia sesión para interactuar con tu asistente de IA</p>
+            <button id="google-login-btn" class="google-btn">
+                <img src="https://upload.wikimedia.org/wikipedia/commons/5/53/Google_%22G%22_Logo.svg" alt="Google logo">
+                Continuar con Google
+            </button>
+        </div>
+    </div>
+
+    <div id="app-container" class="chat-container" style="display: none;">
         <header class="chat-header">
             <h1>Primux Assistant</h1>
+            <button id="logout-btn" class="logout-btn">Salir</button>
         </header>
         
         <div class="character-viewer">
@@ -33,6 +46,6 @@
         </footer>
     </div>
     
-    <script src="/static/app.js"></script>
+    <script type="module" src="/static/app.js"></script>
 </body>
 </html>
