@@ -30,7 +30,7 @@ def llamar_ia_con_respaldo(mensajes, herramientas_activas=None):
     modelos_disponibles = [
         "llama-3.3-70b-versatile", # Cerebro principal (Súper inteligente)
         "llama-3.1-8b-instant",    # Respaldo 1 (Más rápido y ligero)
-        "mixtral-8x7b-32768"       # Respaldo 2 (Motor alternativo de alta capacidad)
+        "mixtral-8x7b-32768"       # Respaldo 2 (Motor alternativo)
     ]
     
     for modelo in modelos_disponibles:
@@ -48,16 +48,16 @@ def llamar_ia_con_respaldo(mensajes, herramientas_activas=None):
             
         except Exception as e:
             error_str = str(e).lower()
-            # Si el error es por límite de tokens (429), intentamos con el siguiente modelo
-            if "rate limit" in error_str or "429" in error_str:
-                print(f"⚠️ Tokens agotados en {modelo}. Cambiando al motor de respaldo...")
+            # Si se acaban los tokens (429) o si el modelo de respaldo es muy torpe usando herramientas (400 / tool_use_failed)
+            if "rate limit" in error_str or "429" in error_str or "400" in error_str or "tool_use_failed" in error_str:
+                print(f"⚠️ Modelo {modelo} falló o está agotado. Cambiando al siguiente...")
                 continue
             else:
-                # Si es un error distinto, lo mostramos
+                # Si es un error totalmente distinto (ej. no hay internet en el servidor), lo mostramos
                 raise e
                 
-    # Si todos los modelos fallan
-    raise Exception("Todos mis motores de IA están agotados en este momento. Por favor, dame unos minutos para recargar energía.")
+    # Si de verdad TODOS fallan, respondemos esto en lugar de explotar:
+    raise Exception("Todos mis motores de IA están temporalmente agotados o fallaron. Por favor, dame unos minutos para recargar energía.")
 
 
 # --- FUNCIÓN DE BÚSQUEDA EN INTERNET ---
