@@ -182,7 +182,23 @@ def chat():
         respuesta_mensaje = llamar_ia_con_respaldo(historial, herramientas)
         
         if respuesta_mensaje.tool_calls:
-            historial.append(respuesta_mensaje)
+            # --- LA CIRUGÍA ESTÁ AQUÍ ---
+            # Desarmamos el objeto complejo de Groq y lo convertimos a un diccionario básico para Firebase
+            mensaje_asistente = {
+                "role": "assistant",
+                "content": respuesta_mensaje.content,
+                "tool_calls": [
+                    {
+                        "id": t.id,
+                        "type": "function",
+                        "function": {
+                            "name": t.function.name,
+                            "arguments": t.function.arguments
+                        }
+                    } for t in respuesta_mensaje.tool_calls
+                ]
+            }
+            historial.append(mensaje_asistente)
             
             for tool_call in respuesta_mensaje.tool_calls:
                 if tool_call.function.name == "buscar_en_internet":
