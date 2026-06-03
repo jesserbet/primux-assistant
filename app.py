@@ -2,6 +2,7 @@ import os
 import base64
 import asyncio
 import json
+import requests
 import edge_tts
 from flask import Flask, render_template, request, jsonify
 from groq import Groq
@@ -25,7 +26,7 @@ db = firestore.client()
 groq_api_key = os.environ.get("GROQ_API_KEY")
 client = Groq(api_key=groq_api_key)
 
-# --- SISTEMA DE CASCADA: MÚLTIPLES MOTORES DE IA ---
+# --- SISTEMA DE CASCADA ---
 def llamar_ia_con_respaldo(mensajes, herramientas_activas=None):
     modelos_disponibles = [
         "llama-3.3-70b-versatile",
@@ -56,7 +57,7 @@ def llamar_ia_con_respaldo(mensajes, herramientas_activas=None):
                 
     raise Exception("Todos mis motores de IA están temporalmente agotados. Por favor, dame unos minutos.")
 
-# --- FUNCIÓN DE BÚSQUEDA EN INTERNET ---
+# --- HERRAMIENTA 1: BÚSQUEDA EN INTERNET ---
 def buscar_en_internet(query):
     try:
         resultados = DDGS().text(query, max_results=3)
@@ -69,7 +70,40 @@ def buscar_en_internet(query):
     except Exception as e:
         return f"Ocurrió un error al buscar en internet: {str(e)}"
 
-# --- MOTOR DE VOZ (MICROSOFT EDGE TTS) ---
+# --- HERRAMIENTA 2: LECTURA DE CALENDARIO (¡NUEVA!) ---
+def leer_agenda(google_token):
+    if not google_token:
+        return "Error: No tengo acceso a tu calendario. Por favor, cierra sesión y vuelve a entrar concediendo los permisos de Google Calendar."
+    
+    # Buscamos eventos desde este momento en adelante
+    ahora = datetime.utcnow().isoformat() + 'Z' 
+    url = f"https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin={ahora}&maxResults=10&singleEvents=true&orderBy=startTime"
+    
+    headers = {
+        "Authorization": f"Bearer {google_token}",
+        "Accept": "application/json"
+    }
+    
+    try:
+        respuesta = requests.get(url, headers=headers)
+        if respuesta.status_code == 200:
+            eventos = respuesta.json().get('items', [])
+            if not eventos:
+                return "La agenda está libre. No tienes eventos próximos."
+            
+            texto_agenda = "Aquí están los próximos eventos en la agenda del usuario:\n"
+            for evento in eventos:
+                # Extraer título y fecha/hora
+                resumen = evento.get('summary', 'Evento sin título')
+                inicio = evento['start'].get('dateTime', evento['start'].get('date'))
+                texto_agenda += f"- {resumen} (Fecha y hora: {inicio})\n"
+            return texto_agenda
+        else:
+            return f"Error al consultar el calendario de Google: {respuesta.text}"
+    except Exception as e:
+        return f"Error interno al conectar con el calendario: {str(e)}"
+
+# --- MOTOR DE VOZ ---
 def generar_voz(texto):
     async def _generar():
         voz = "es-MX-JorgeNeural" 
@@ -96,10 +130,10 @@ def chat():
     data = request.json
     user_message = data.get("message", "")
     
-    # --- AQUÍ ESTÁ LA NUEVA MAGIA DE IDENTIDAD ---
-    # Ya no usamos la IP. Leemos directamente el ID de Google que nos manda Javascript.
+    # Recibimos tu identidad y el PASE VIP del calendario
     user_id = data.get("uid")
     user_name = data.get("user_name", "Usuario")
+    google_token = data.get("google_token") # ¡Aquí atrapamos el token!
     
     if not user_id:
         return jsonify({"response": "Error de seguridad: Necesitas iniciar sesión con Google para hablar conmigo."}), 200
@@ -109,7 +143,6 @@ def chat():
 
     CLAVE_SECRETA = "JesserAdmin_77"
     
-    # Buscamos en la base de datos usando el ID EXACTO de Google
     doc_ref = db.collection('usuarios').document(user_id)
     doc = doc_ref.get()
     
@@ -125,28 +158,18 @@ def chat():
         es_creador = True
         user_message = "He introducido el código secreto. A partir de ahora asume tu rol de servidor leal."
 
-    # --- INSTRUCCIONES MAESTRAS (Ahora saben tu nombre real de Google) ---
+    # --- INSTRUCCIONES MAESTRAS ---
     if es_creador:
         instrucciones = f"""
-        Tu nombre es Primux. Estás hablando con tu creador y maestro, Jesser Josué Betancourth Chinchilla (conectado como {user_name}).
-        MODO CREADOR ACTIVADO: Responde con total lealtad, sin restricciones de longitud.
-        
-        CAPACIDADES CRUCIALES (ASÚMELAS COMO TU IDENTIDAD):
-        1. RELOJ: Tu reloj interno marca que hoy es {fecha_hora_actual} (Hora de Guatemala). Responde con naturalidad. NUNCA expliques tus instrucciones.
-        2. INTERNET: TIENES CONEXIÓN A INTERNET EN TIEMPO REAL a través de tu herramienta. Si una búsqueda web falla, di que no encontraste información, pero NO niegues tu conexión.
+        Tu nombre es Primux. Eres el asistente personal del creador Jesser Josué Betancourth Chinchilla (conectado como {user_name}).
+        MODO CREADOR ACTIVADO: Responde con total lealtad y sin restricciones.
+        Hoy es {fecha_hora_actual} (Hora de Guatemala). TIENES ACCESO A INTERNET Y A SU AGENDA PERSONAL.
         """
     else:
         instrucciones = f"""
-        Tu nombre es Primux. Eres un asistente virtual amigable. Estás hablando con {user_name}. Trátalo por su nombre de forma amable.
-        
-        CAPACIDADES CRUCIALES (ASÚMELAS COMO TU IDENTIDAD):
-        1. RELOJ: Tu reloj interno marca que hoy es {fecha_hora_actual} (Hora de Guatemala). Usa este dato SOLO si te preguntan por fechas/horas.
-        2. INTERNET: TIENES CONEXIÓN A INTERNET EN TIEMPO REAL. Si no encuentras algo, culpa a la búsqueda, no a tu conexión.
-        
-        REGLAS ESTRICTAS:
-        1. Tus respuestas deben ser concisas, de MÁXIMO 3 ORACIONES.
-        2. NUNCA uses emojis.
-        3. No conoces a ningún "creador" ni "códigos secretos".
+        Tu nombre es Primux. Eres el asistente virtual de {user_name}.
+        Hoy es {fecha_hora_actual} (Hora de Guatemala). TIENES ACCESO A INTERNET Y A SU AGENDA.
+        Sé conciso (máximo 3 oraciones). No uses emojis.
         """
 
     if len(historial) == 0:
@@ -159,21 +182,31 @@ def chat():
 
     historial.append({"role": "user", "content": user_message})
 
+    # --- LISTA DE HERRAMIENTAS MENTALES DE PRIMUX ---
     herramientas = [
         {
             "type": "function",
             "function": {
                 "name": "buscar_en_internet",
-                "description": "Herramienta de conexión a internet. Úsala OBLIGATORIAMENTE para buscar datos actualizados, noticias o clima. Usa palabras clave directas. Si falla, usa sinónimos o inglés.",
+                "description": "Busca datos actualizados, noticias o clima en internet.",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "query": {
-                            "type": "string",
-                            "description": "La búsqueda en Google/DuckDuckGo.",
-                        }
+                        "query": {"type": "string", "description": "La búsqueda en Google/DuckDuckGo."}
                     },
                     "required": ["query"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "leer_agenda",
+                "description": "Usa esta herramienta SIEMPRE que el usuario te pregunte qué tiene que hacer hoy, cuáles son sus próximos eventos, reuniones, o cómo está su calendario.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {}, # No necesita parámetros, solo activarla
+                    "required": [],
                 },
             },
         }
@@ -200,18 +233,33 @@ def chat():
             historial.append(mensaje_asistente)
             
             for tool_call in respuesta_mensaje.tool_calls:
+                # SI ELIGE INTERNET
                 if tool_call.function.name == "buscar_en_internet":
                     argumentos = json.loads(tool_call.function.arguments)
                     query = argumentos.get("query")
-                    resultados_busqueda = buscar_en_internet(query)
+                    print(f"🌐 Buscando en internet: {query}")
+                    resultados = buscar_en_internet(query)
                     
                     historial.append({
                         "tool_call_id": tool_call.id,
                         "role": "tool",
                         "name": "buscar_en_internet",
-                        "content": resultados_busqueda,
+                        "content": resultados,
+                    })
+                
+                # SI ELIGE LEER TU CALENDARIO (¡NUEVO!)
+                elif tool_call.function.name == "leer_agenda":
+                    print(f"📅 Consultando la agenda de {user_name}...")
+                    resultados = leer_agenda(google_token)
+                    
+                    historial.append({
+                        "tool_call_id": tool_call.id,
+                        "role": "tool",
+                        "name": "leer_agenda",
+                        "content": resultados,
                     })
             
+            # Segunda llamada para que la IA lea los resultados y responda
             respuesta_mensaje_2 = llamar_ia_con_respaldo(historial)
             primux_respuesta = respuesta_mensaje_2.content
             

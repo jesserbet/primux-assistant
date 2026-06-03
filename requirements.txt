@@ -6,3 +6,4 @@ pytz
 gunicorn
 edge-tts
 duckduckgo-search
+requests
