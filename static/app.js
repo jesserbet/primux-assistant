@@ -12,16 +12,14 @@ const firebaseConfig = {
   appId: "1:306312909213:web:29875273a1c00e3c329f74"
 };
 
-// --- 3. INICIALIZAR LA APLICACIÓN Y LA SEGURIDAD ---
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const provider = new GoogleAuthProvider();
 
-let currentUser = null; // Aquí guardaremos la memoria de quién está conectado
-let googleAccessToken = null; // NUEVA MEMORIA: Aquí guardaremos el Pase VIP del calendario
+let currentUser = null; 
+let googleAccessToken = null; 
 
 document.addEventListener('DOMContentLoaded', () => {
-    // Referencias a la interfaz
     const loginContainer = document.getElementById('login-container');
     const appContainer = document.getElementById('app-container');
     const googleLoginBtn = document.getElementById('google-login-btn');
@@ -43,37 +41,36 @@ document.addEventListener('DOMContentLoaded', () => {
     let lipSyncInterval;
     let currentAudio = null;
 
-    // --- 4. CONTROLADOR DE PUERTAS (LOGIN/LOGOUT) ---
-    // Esta función vigila si hay alguien conectado o no
+    // --- 4. CONTROLADOR DE PUERTAS ---
     onAuthStateChanged(auth, (user) => {
         if (user) {
-            // ¡Usuario detectado! Abrimos la bóveda
             currentUser = user;
+            // 🧠 AQUÍ RECUPERAMOS EL PASE VIP SI RECARGASTE LA PÁGINA
+            googleAccessToken = sessionStorage.getItem('google_token');
+            
             loginContainer.style.display = 'none';
-            appContainer.style.display = 'block'; // Mostramos el chat
-            // Saludamos al usuario por su nombre de Google
+            appContainer.style.display = 'block'; 
             status.textContent = `¡Hola, ${user.displayName.split(' ')[0]}! ¿En qué puedo ayudarte?`;
         } else {
-            // Nadie conectado. Cerramos la puerta.
             currentUser = null;
-            googleAccessToken = null; // Borramos el token si cierra sesión
+            googleAccessToken = null;
+            // 🧠 BORRAMOS EL PASE VIP POR SEGURIDAD AL SALIR
+            sessionStorage.removeItem('google_token'); 
             loginContainer.style.display = 'flex';
             appContainer.style.display = 'none';
         }
     });
 
-    // Botón de Iniciar Sesión con Google (AHORA PIDE PERMISOS DE CALENDARIO)
     googleLoginBtn.addEventListener('click', async () => {
         try {
-            // Le decimos a Google que queremos leer la agenda
             provider.addScope('https://www.googleapis.com/auth/calendar.readonly');
-            
             const result = await signInWithPopup(auth, provider);
             
-            // Extraemos el Pase VIP (Token) y lo guardamos
             const credential = GoogleAuthProvider.credentialFromResult(result);
             if (credential) {
                 googleAccessToken = credential.accessToken;
+                // 🧠 GUARDAMOS EL PASE VIP EN LA MEMORIA DEL NAVEGADOR
+                sessionStorage.setItem('google_token', googleAccessToken);
             }
         } catch (error) {
             console.error("Error al iniciar sesión:", error);
@@ -81,7 +78,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Botón de Salir
     logoutBtn.addEventListener('click', async () => {
         try {
             await signOut(auth);
@@ -90,7 +86,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // --- 5. LÓGICA DE ANIMACIÓN (Tu código original) ---
+    // --- 5. LÓGICA DE ANIMACIÓN ---
     const typewriter = (text, element, speed = 50) => {
         if (window.Intl && Intl.Segmenter) {
             const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
@@ -142,10 +138,9 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     };
 
-    // --- 6. ENVÍO DE MENSAJES (Ahora con Identidad y Token VIP) ---
+    // --- 6. ENVÍO DE MENSAJES ---
     const handleSendMessage = async () => {
         const message = textInput.value.trim();
-        // Si no hay mensaje o nadie inició sesión, no hacemos nada
         if (!message || !currentUser) return; 
 
         textInput.value = '';
@@ -161,7 +156,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 body: JSON.stringify({ 
                     message: message, 
                     session_id: sessionId,
-                    // AQUÍ ESTÁ LA MAGIA: Enviamos el ID único, nombre de Google y el Pase VIP
                     uid: currentUser.uid,
                     user_name: currentUser.displayName,
                     google_token: googleAccessToken
