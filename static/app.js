@@ -18,6 +18,7 @@ const auth = getAuth(app);
 const provider = new GoogleAuthProvider();
 
 let currentUser = null; // Aquí guardaremos la memoria de quién está conectado
+let googleAccessToken = null; // NUEVA MEMORIA: Aquí guardaremos el Pase VIP del calendario
 
 document.addEventListener('DOMContentLoaded', () => {
     // Referencias a la interfaz
@@ -55,15 +56,25 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             // Nadie conectado. Cerramos la puerta.
             currentUser = null;
+            googleAccessToken = null; // Borramos el token si cierra sesión
             loginContainer.style.display = 'flex';
             appContainer.style.display = 'none';
         }
     });
 
-    // Botón de Iniciar Sesión con Google
+    // Botón de Iniciar Sesión con Google (AHORA PIDE PERMISOS DE CALENDARIO)
     googleLoginBtn.addEventListener('click', async () => {
         try {
-            await signInWithPopup(auth, provider);
+            // Le decimos a Google que queremos leer la agenda
+            provider.addScope('https://www.googleapis.com/auth/calendar.readonly');
+            
+            const result = await signInWithPopup(auth, provider);
+            
+            // Extraemos el Pase VIP (Token) y lo guardamos
+            const credential = GoogleAuthProvider.credentialFromResult(result);
+            if (credential) {
+                googleAccessToken = credential.accessToken;
+            }
         } catch (error) {
             console.error("Error al iniciar sesión:", error);
             alert("Hubo un error al conectar con Google. Revisa tu conexión.");
@@ -131,7 +142,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     };
 
-    // --- 6. ENVÍO DE MENSAJES (Ahora con Identidad) ---
+    // --- 6. ENVÍO DE MENSAJES (Ahora con Identidad y Token VIP) ---
     const handleSendMessage = async () => {
         const message = textInput.value.trim();
         // Si no hay mensaje o nadie inició sesión, no hacemos nada
@@ -150,9 +161,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 body: JSON.stringify({ 
                     message: message, 
                     session_id: sessionId,
-                    // AQUÍ ESTÁ LA MAGIA: Enviamos el ID único y el nombre de Google a Python
+                    // AQUÍ ESTÁ LA MAGIA: Enviamos el ID único, nombre de Google y el Pase VIP
                     uid: currentUser.uid,
-                    user_name: currentUser.displayName
+                    user_name: currentUser.displayName,
+                    google_token: googleAccessToken
                 }),
             });
 
