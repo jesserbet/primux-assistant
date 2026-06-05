@@ -63,7 +63,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     googleLoginBtn.addEventListener('click', async () => {
         try {
-            provider.addScope('https://www.googleapis.com/auth/calendar.readonly');
+            // MAGIA AQUÍ: Cambiamos .readonly por .events para tener permisos de ESCRITURA
+            provider.addScope('https://www.googleapis.com/auth/calendar.events');
+            
             const result = await signInWithPopup(auth, provider);
             
             const credential = GoogleAuthProvider.credentialFromResult(result);
@@ -75,14 +77,6 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (error) {
             console.error("Error al iniciar sesión:", error);
             alert("Hubo un error al conectar con Google. Revisa tu conexión.");
-        }
-    });
-
-    logoutBtn.addEventListener('click', async () => {
-        try {
-            await signOut(auth);
-        } catch (error) {
-            console.error("Error al cerrar sesión:", error);
         }
     });
 

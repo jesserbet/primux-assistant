@@ -6,7 +6,7 @@ import requests
 import edge_tts
 from flask import Flask, render_template, request, jsonify
 from groq import Groq
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
 from duckduckgo_search import DDGS
 
@@ -55,34 +55,29 @@ def llamar_ia_con_respaldo(mensajes, herramientas_activas=None):
             else:
                 raise e
                 
-    raise Exception("Todos mis motores de IA están temporalmente agotados. Por favor, dame unos minutos.")
+    raise Exception("Todos mis motores de IA están temporalmente agotados.")
 
-# --- HERRAMIENTA 1: BÚSQUEDA EN INTERNET ---
+# --- HERRAMIENTA 1: BÚSQUEDA ---
 def buscar_en_internet(query):
     try:
         resultados = DDGS().text(query, max_results=3)
         if not resultados:
             return "No se encontraron resultados recientes."
-        texto_resultado = "Aquí tienes la información más reciente de internet:\n"
+        texto_resultado = "Aquí tienes la información de internet:\n"
         for r in resultados:
             texto_resultado += f"- {r['title']}: {r['body']}\n"
         return texto_resultado
     except Exception as e:
-        return f"Ocurrió un error al buscar en internet: {str(e)}"
+        return f"Error al buscar en internet: {str(e)}"
 
-# --- HERRAMIENTA 2: LECTURA DE CALENDARIO (¡NUEVA!) ---
+# --- HERRAMIENTA 2: LEER CALENDARIO ---
 def leer_agenda(google_token):
     if not google_token:
-        return "Error: No tengo acceso a tu calendario. Por favor, cierra sesión y vuelve a entrar concediendo los permisos de Google Calendar."
+        return "Error: No tengo acceso a tu calendario."
     
-    # Buscamos eventos desde este momento en adelante
     ahora = datetime.utcnow().isoformat() + 'Z' 
     url = f"https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin={ahora}&maxResults=10&singleEvents=true&orderBy=startTime"
-    
-    headers = {
-        "Authorization": f"Bearer {google_token}",
-        "Accept": "application/json"
-    }
+    headers = {"Authorization": f"Bearer {google_token}", "Accept": "application/json"}
     
     try:
         respuesta = requests.get(url, headers=headers)
@@ -91,17 +86,42 @@ def leer_agenda(google_token):
             if not eventos:
                 return "La agenda está libre. No tienes eventos próximos."
             
-            texto_agenda = "Aquí están los próximos eventos en la agenda del usuario:\n"
+            texto_agenda = "Aquí están los próximos eventos:\n"
             for evento in eventos:
-                # Extraer título y fecha/hora
                 resumen = evento.get('summary', 'Evento sin título')
                 inicio = evento['start'].get('dateTime', evento['start'].get('date'))
                 texto_agenda += f"- {resumen} (Fecha y hora: {inicio})\n"
             return texto_agenda
         else:
-            return f"Error al consultar el calendario de Google: {respuesta.text}"
+            return f"Error al leer el calendario: {respuesta.text}"
     except Exception as e:
-        return f"Error interno al conectar con el calendario: {str(e)}"
+        return f"Error interno: {str(e)}"
+
+# --- HERRAMIENTA 3: CREAR EVENTO (¡LA NUEVA MAGIA!) ---
+def crear_evento_calendario(google_token, summary, start_time, end_time):
+    if not google_token:
+        return "Error: No tengo permisos de escritura. Cierra sesión y vuelve a entrar."
+    
+    url = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
+    headers = {
+        "Authorization": f"Bearer {google_token}",
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "summary": summary,
+        "start": {"dateTime": start_time, "timeZone": "America/Guatemala"},
+        "end": {"dateTime": end_time, "timeZone": "America/Guatemala"}
+    }
+    
+    try:
+        respuesta = requests.post(url, headers=headers, json=payload)
+        if respuesta.status_code == 200:
+            return f"¡Éxito! El evento '{summary}' fue creado en la agenda correctamente."
+        else:
+            return f"Error al crear el evento en Google: {respuesta.text}"
+    except Exception as e:
+        return f"Error interno del servidor: {str(e)}"
 
 # --- MOTOR DE VOZ ---
 def generar_voz(texto):
@@ -118,7 +138,6 @@ def generar_voz(texto):
         audio_bytes = asyncio.run(_generar())
         return base64.b64encode(audio_bytes).decode('utf-8')
     except Exception as e:
-        print(f"Error Edge TTS: {str(e)}")
         return None
 
 @app.route("/")
@@ -129,19 +148,15 @@ def index():
 def chat():
     data = request.json
     user_message = data.get("message", "")
-    
-    # Recibimos tu identidad y el PASE VIP del calendario
     user_id = data.get("uid")
     user_name = data.get("user_name", "Usuario")
-    google_token = data.get("google_token") # ¡Aquí atrapamos el token!
+    google_token = data.get("google_token") 
     
     if not user_id:
-        return jsonify({"response": "Error de seguridad: Necesitas iniciar sesión con Google para hablar conmigo."}), 200
+        return jsonify({"response": "Error: Necesitas iniciar sesión con Google."}), 200
 
     zona_horaria = pytz.timezone('America/Guatemala')
     fecha_hora_actual = datetime.now(zona_horaria).strftime('%Y-%m-%d %H:%M:%S')
-
-    CLAVE_SECRETA = "JesserAdmin_77"
     
     doc_ref = db.collection('usuarios').document(user_id)
     doc = doc_ref.get()
@@ -152,25 +167,12 @@ def chat():
     if doc.exists:
         datos_bd = doc.to_dict()
         historial = datos_bd.get('historial', [])
-        es_creador = datos_bd.get('es_creador', False)
 
-    if user_message.strip() == CLAVE_SECRETA:
-        es_creador = True
-        user_message = "He introducido el código secreto. A partir de ahora asume tu rol de servidor leal."
-
-    # --- INSTRUCCIONES MAESTRAS ---
-    if es_creador:
-        instrucciones = f"""
-        Tu nombre es Primux. Eres el asistente personal del creador Jesser Josué Betancourth Chinchilla (conectado como {user_name}).
-        MODO CREADOR ACTIVADO: Responde con total lealtad y sin restricciones.
-        Hoy es {fecha_hora_actual} (Hora de Guatemala). TIENES ACCESO A INTERNET Y A SU AGENDA PERSONAL.
-        """
-    else:
-        instrucciones = f"""
-        Tu nombre es Primux. Eres el asistente virtual de {user_name}.
-        Hoy es {fecha_hora_actual} (Hora de Guatemala). TIENES ACCESO A INTERNET Y A SU AGENDA.
-        Sé conciso (máximo 3 oraciones). No uses emojis.
-        """
+    instrucciones = f"""
+    Tu nombre es Primux. Eres el asistente virtual de {user_name}.
+    Hoy es {fecha_hora_actual} (Hora de Guatemala). TIENES ACCESO A SU AGENDA.
+    Puedes LEER y CREAR eventos. Sé conciso.
+    """
 
     if len(historial) == 0:
         historial.append({"role": "system", "content": instrucciones})
@@ -182,31 +184,37 @@ def chat():
 
     historial.append({"role": "user", "content": user_message})
 
-    # --- LISTA DE HERRAMIENTAS MENTALES DE PRIMUX ---
+    # --- AGREGAMOS LA NUEVA HERRAMIENTA AL CEREBRO ---
     herramientas = [
         {
             "type": "function",
             "function": {
                 "name": "buscar_en_internet",
-                "description": "Busca datos actualizados, noticias o clima en internet.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "query": {"type": "string", "description": "La búsqueda en Google/DuckDuckGo."}
-                    },
-                    "required": ["query"],
-                },
+                "description": "Busca datos en internet.",
+                "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]},
             },
         },
         {
             "type": "function",
             "function": {
                 "name": "leer_agenda",
-                "description": "Usa esta herramienta SIEMPRE que el usuario te pregunte qué tiene que hacer hoy, cuáles son sus próximos eventos, reuniones, o cómo está su calendario.",
+                "description": "Lee los próximos eventos de la agenda.",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "crear_evento_calendario",
+                "description": "Crea un nuevo evento en Google Calendar. El formato de las fechas debe ser estricto (ISO 8601).",
                 "parameters": {
                     "type": "object",
-                    "properties": {}, # No necesita parámetros, solo activarla
-                    "required": [],
+                    "properties": {
+                        "summary": {"type": "string", "description": "Título del evento."},
+                        "start_time": {"type": "string", "description": "Fecha inicio en ISO 8601 (ej. '2026-06-05T18:00:00')."},
+                        "end_time": {"type": "string", "description": "Fecha fin en ISO 8601 (ej. '2026-06-05T19:00:00')."}
+                    },
+                    "required": ["summary", "start_time", "end_time"],
                 },
             },
         }
@@ -223,65 +231,50 @@ def chat():
                     {
                         "id": t.id,
                         "type": "function",
-                        "function": {
-                            "name": t.function.name,
-                            "arguments": t.function.arguments
-                        }
+                        "function": {"name": t.function.name, "arguments": t.function.arguments}
                     } for t in respuesta_mensaje.tool_calls
                 ]
             }
             historial.append(mensaje_asistente)
             
             for tool_call in respuesta_mensaje.tool_calls:
-                # SI ELIGE INTERNET
-                if tool_call.function.name == "buscar_en_internet":
-                    argumentos = json.loads(tool_call.function.arguments)
-                    query = argumentos.get("query")
-                    print(f"🌐 Buscando en internet: {query}")
-                    resultados = buscar_en_internet(query)
-                    
-                    historial.append({
-                        "tool_call_id": tool_call.id,
-                        "role": "tool",
-                        "name": "buscar_en_internet",
-                        "content": resultados,
-                    })
+                nombre_funcion = tool_call.function.name
+                argumentos = json.loads(tool_call.function.arguments)
                 
-                # SI ELIGE LEER TU CALENDARIO (¡NUEVO!)
-                elif tool_call.function.name == "leer_agenda":
-                    print(f"📅 Consultando la agenda de {user_name}...")
+                if nombre_funcion == "buscar_en_internet":
+                    resultados = buscar_en_internet(argumentos.get("query"))
+                elif nombre_funcion == "leer_agenda":
                     resultados = leer_agenda(google_token)
-                    
-                    historial.append({
-                        "tool_call_id": tool_call.id,
-                        "role": "tool",
-                        "name": "leer_agenda",
-                        "content": resultados,
-                    })
+                elif nombre_funcion == "crear_evento_calendario":
+                    print(f"📝 Creando evento: {argumentos.get('summary')}...")
+                    resultados = crear_evento_calendario(
+                        google_token, 
+                        argumentos.get("summary"), 
+                        argumentos.get("start_time"), 
+                        argumentos.get("end_time")
+                    )
+                
+                historial.append({
+                    "tool_call_id": tool_call.id,
+                    "role": "tool",
+                    "name": nombre_funcion,
+                    "content": resultados,
+                })
             
-            # Segunda llamada para que la IA lea los resultados y responda
             respuesta_mensaje_2 = llamar_ia_con_respaldo(historial)
             primux_respuesta = respuesta_mensaje_2.content
-            
         else:
             primux_respuesta = respuesta_mensaje.content
         
         historial.append({"role": "assistant", "content": primux_respuesta})
-        doc_ref.set({
-            'historial': historial,
-            'es_creador': es_creador
-        })
+        doc_ref.set({'historial': historial, 'es_creador': es_creador})
 
         audio_base64 = generar_voz(primux_respuesta)
-
-        return jsonify({
-            "response": primux_respuesta,
-            "audio": audio_base64
-        })
+        return jsonify({"response": primux_respuesta, "audio": audio_base64})
         
     except Exception as e:
-        print(f"💥 ERROR REVELADO: {str(e)}")
-        return jsonify({"response": f"Error en la matrix: {str(e)}"}), 200
+        print(f"💥 ERROR: {str(e)}")
+        return jsonify({"response": f"Error: {str(e)}"}), 200
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080, debug=True)
